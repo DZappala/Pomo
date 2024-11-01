@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
@@ -7,26 +5,10 @@ use ratatui::{
     widgets::{Block, Gauge, Widget},
 };
 
-use tokio::sync::{mpsc::unbounded_channel, Mutex};
-
-use crate::timer_backend::Timer;
-
 #[derive(Debug, Default, Clone)]
 pub struct TimerTab {
-    pub timer: Arc<Mutex<Timer>>,
     pub is_running: bool,
-    pub progress: Arc<std::sync::Mutex<u16>>,
-}
-
-impl TimerTab {
-    pub async fn run(&self) {
-        let (tx, mut rx) = unbounded_channel::<u16>();
-        self.timer.lock().await.run(tx);
-        while let Some(prog) = rx.recv().await {
-            *self.progress.lock().unwrap() = prog;
-            println!("prog: {:?}", prog)
-        }
-    }
+    pub progress: u16,
 }
 
 impl Widget for &TimerTab {
@@ -36,8 +18,9 @@ impl Widget for &TimerTab {
         let gauge = Gauge::default()
             .block(Block::bordered())
             .gauge_style(Style::default())
-            .percent(*self.progress.lock().unwrap());
+            .percent(self.progress);
 
+        // println!("p: {:?}", self.progress);
         Widget::render(gauge, timer, buf);
     }
 }

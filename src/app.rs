@@ -1,7 +1,4 @@
-// todo
-// An enum to track the app state
-// An enum to track the timer mode
-// An enum to track the app page
+use std::{collections::HashMap, error::Error};
 
 use futures::StreamExt;
 use ratatui::{
@@ -12,12 +9,16 @@ use ratatui::{
     widgets::{Block, Tabs, Widget},
     DefaultTerminal, Frame,
 };
-use std::{collections::HashMap, error::Error, result::Result, time::Duration};
 use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
+use tokio::{
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    time::{interval, Duration},
+};
 
 use crate::{
     shutdown,
     tabs::{HomeTab, SettingsTab, StatsTab, TimerTab},
+    timer_backend::Timer,
 };
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -51,31 +52,45 @@ pub struct App {
     pub settings_tab: SettingsTab,
     pub timer_tab: TimerTab,
     pub stats_tab: StatsTab,
+    pub timer: Option<Timer>,
+    pub rx: UnboundedReceiver<u16>,
+    pub tx: UnboundedSender<u16>,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        let (tx, mut rx) = unbounded_channel::<u16>();
+        Self {
+            rx,
+            tx,
+            state: Default::default(),
+            history: Default::default(),
+            current_tab: Default::default(),
+            home_tab: Default::default(),
+            settings_tab: Default::default(),
+            timer_tab: Default::default(),
+            stats_tab: Default::default(),
+            timer: Default::default(),
+        }
+    }
 }
 
 impl App {
-    const FRAMES_PER_SECOND: f32 = 60.0;
-
-    pub fn new() -> Self {
-        Self {
-            state: AppState::Startup,
-            history: HashMap::new(),
-            current_tab: CurrentTab::default(),
-            home_tab: HomeTab::default(),
-            settings_tab: SettingsTab::default(),
-            timer_tab: TimerTab::default(),
-            stats_tab: StatsTab::default(),
-        }
-    }
+    const FRAMES_PER_SECOND: f32 = 60.;
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<(), Box<dyn Error>> {
         let period = Duration::from_secs_f32(1. / Self::FRAMES_PER_SECOND);
-        let mut interval = tokio::time::interval(period);
+        let mut interval = interval(period);
         let mut events = EventStream::new();
 
         while self.is_running() {
             tokio::select! {
-                _ = interval.tick() => {terminal.draw(|frame| self.draw(frame))?; },
+                _ = interval.tick() => {
+                    terminal.draw(|frame| self.draw(frame))?;
+                },
+                val = self.rx.recv() => {
+                    self.timer_tab.progress = val.unwrap();
+                },
                 Some(Ok(event)) = events.next() => self.handle_event(&event).await,
             }
         }
@@ -100,8 +115,7 @@ impl App {
         }
 
         match key.code {
-            KeyCode::Char('q') => self.state = AppState::Exit,
-            // allows left or right arrow keys and vim ('l' & 'h') to navigate tabs
+            KeyCode::Char('q') => self.quit(),
             KeyCode::Char('l') | KeyCode::Right => self.next_tab(),
             KeyCode::Char('h') | KeyCode::Left => self.prev_tab(),
             KeyCode::Char('j') | KeyCode::Up => self.next(),
@@ -115,10 +129,19 @@ impl App {
                     self.tab(CurrentTab::Timer)
                 }
 
-                self.timer_tab.run().await;
+                match self.timer {
+                    None => {
+                        let (tx, mut rx) = unbounded_channel::<u16>();
+                        self.rx = rx;
+                        let timer = Timer::new(tx);
+                        timer.clone().run();
+                        self.timer = Some(timer);
+                    }
+                    _ => {}
+                }
             }
             _ => {}
-        };
+        }
     }
 
     pub fn next_tab(&mut self) {
@@ -151,32 +174,10 @@ impl App {
         }
     }
 
-    pub fn get(&'static self) -> &'static Self {
-        self
-    }
-
     pub fn quit(&mut self) {
         self.state = AppState::Exit;
     }
-}
 
-impl Default for App {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Widget for &App {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let vertical = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]);
-        let [header, middle] = vertical.areas(area);
-        self.render_header(header, buf);
-        self.render_middle(middle, buf);
-        // render bottom bar? called from App not self?
-    }
-}
-
-impl App {
     fn render_header(&self, area: Rect, buf: &mut Buffer) {
         let layout = Layout::horizontal([Constraint::Min(0)]);
         let [tabs] = layout.areas(area);
@@ -196,6 +197,15 @@ impl App {
             CurrentTab::Stats => self.stats_tab.render(area, buf),
             CurrentTab::Timer => self.timer_tab.render(area, buf),
         }
+    }
+}
+
+impl Widget for &App {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let vertical = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]);
+        let [header, middle] = vertical.areas(area);
+        self.render_header(header, buf);
+        self.render_middle(middle, buf);
     }
 }
 
