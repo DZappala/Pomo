@@ -47,6 +47,12 @@ impl Default for Timer {
 }
 
 impl Timer {
+    pub fn run(mut self, sender: UnboundedSender<u16>) {
+        tokio::spawn(async move {
+            self.start(sender).await;
+        });
+    }
+
     const fn max_u16() -> u64 {
         u16::MAX as u64
     }
@@ -66,7 +72,7 @@ impl Timer {
             interval.tick().await;
             let secs = interval.period().as_secs();
             assert!(secs < Self::max_u16());
-            sender.send((i / self.secs) * 100).ok();
+            sender.send((i / self.secs) * 100).unwrap();
         }
     }
 }

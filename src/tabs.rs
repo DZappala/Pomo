@@ -1,7 +1,7 @@
 mod home;
 mod settings;
 mod stats;
-mod timer;
+pub(crate) mod timer;
 
 pub use home::HomeTab;
 pub use settings::SettingsTab;

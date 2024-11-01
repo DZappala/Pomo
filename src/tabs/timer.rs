@@ -19,18 +19,12 @@ pub struct TimerTab {
 }
 
 impl TimerTab {
-    pub fn run(self) {
-        tokio::spawn(self.fetch_timer());
-    }
-
-    async fn fetch_timer(mut self) {
-        self.is_running = true;
+    pub async fn run(&self) {
         let (tx, mut rx) = unbounded_channel::<u16>();
-        tokio::spawn(async move {
-            self.timer.lock().await.start(tx).await;
-        });
+        self.timer.lock().await.run(tx);
         while let Some(prog) = rx.recv().await {
             *self.progress.lock().unwrap() = prog;
+            println!("prog: {:?}", prog)
         }
     }
 }

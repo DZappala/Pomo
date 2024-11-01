@@ -58,7 +58,7 @@ impl App {
 
     pub fn new() -> Self {
         Self {
-            state: AppState::default(),
+            state: AppState::Startup,
             history: HashMap::new(),
             current_tab: CurrentTab::default(),
             home_tab: HomeTab::default(),
@@ -76,7 +76,7 @@ impl App {
         while self.is_running() {
             tokio::select! {
                 _ = interval.tick() => {terminal.draw(|frame| self.draw(frame))?; },
-                Some(Ok(event)) = events.next() => self.handle_event(&event),
+                Some(Ok(event)) = events.next() => self.handle_event(&event).await,
             }
         }
         Ok(())
@@ -93,7 +93,7 @@ impl App {
         }
     }
 
-    fn handle_event(&mut self, event: &Event) {
+    async fn handle_event(&mut self, event: &Event) {
         let Event::Key(key) = event else { return };
         if key.kind != KeyEventKind::Press {
             return;
@@ -115,11 +115,7 @@ impl App {
                     self.tab(CurrentTab::Timer)
                 }
 
-                if self.timer_tab.is_running {
-                    return;
-                }
-                let timer_tab = self.timer_tab.clone();
-                timer_tab.run();
+                self.timer_tab.run().await;
             }
             _ => {}
         };
