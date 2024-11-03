@@ -19,6 +19,7 @@ use crate::{
     shutdown,
     tabs::{HomeTab, SettingsTab, StatsTab, TimerTab},
     timer_backend::Timer,
+    Task,
 };
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -43,10 +44,11 @@ pub enum CurrentTab {
     Settings,
 }
 
+#[derive(Debug)]
 pub struct App {
     pub state: AppState,
     // map of all the previous timer entries, loaded from json
-    pub history: HashMap<String, String>,
+    pub history: Vec<Task>,
     pub current_tab: CurrentTab,
     pub home_tab: HomeTab,
     pub settings_tab: SettingsTab,
@@ -59,7 +61,7 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
-        let (tx, mut rx) = unbounded_channel::<u16>();
+        let (tx, rx) = unbounded_channel::<u16>();
         Self {
             rx,
             tx,
@@ -76,6 +78,13 @@ impl Default for App {
 }
 
 impl App {
+    pub fn new(history: Vec<Task>) -> Self {
+        Self {
+            history,
+            ..Default::default()
+        }
+    }
+
     const FRAMES_PER_SECOND: f32 = 60.;
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<(), Box<dyn Error>> {
@@ -129,15 +138,12 @@ impl App {
                     self.tab(CurrentTab::Timer)
                 }
 
-                match self.timer {
-                    None => {
-                        let (tx, mut rx) = unbounded_channel::<u16>();
-                        self.rx = rx;
-                        let timer = Timer::new(tx);
-                        timer.clone().run();
-                        self.timer = Some(timer);
-                    }
-                    _ => {}
+                if self.timer.is_none() {
+                    let (tx, rx) = unbounded_channel::<u16>();
+                    self.rx = rx;
+                    let timer = Timer::new(tx);
+                    timer.clone().run();
+                    self.timer = Some(timer);
                 }
             }
             _ => {}

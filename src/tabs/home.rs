@@ -2,9 +2,13 @@ use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
     style::{palette::tailwind::SLATE, Modifier, Style},
-    widgets::{Block, HighlightSpacing, List, ListState, StatefulWidget, Widget},
+    widgets::{
+        Block, HighlightSpacing, List, ListState, StatefulWidget, Table, TableState, Widget,
+    },
 };
 use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
+
+use crate::Task;
 
 #[derive(Default, Clone, Copy, Display, FromRepr, EnumIter, PartialEq, Eq, Debug)]
 pub enum Button {
@@ -35,37 +39,54 @@ impl Button {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct HomeTab {
     row_index: usize,
-    currently_selected: Button,
+    currently_selected_list_item: Button,
+    history: Vec<Task>,
 }
 
 impl HomeTab {
+    pub fn new(history: Vec<Task>) -> Self {
+        Self {
+            history,
+            ..Default::default()
+        }
+    }
+
     pub fn prev_row(&mut self) {
-        self.currently_selected = self.currently_selected.prev();
+        self.currently_selected_list_item = self.currently_selected_list_item.prev();
     }
 
     pub fn next_row(&mut self) {
-        self.currently_selected = self.currently_selected.next();
+        self.currently_selected_list_item = self.currently_selected_list_item.next();
     }
 
-    fn render_home_list(self, area: Rect, buf: &mut Buffer) {
+    fn render_home_list(&self, area: Rect, buf: &mut Buffer) {
         let list = List::from_iter(Button::iter().map(|t| t.to_string()))
             .block(Block::bordered())
             .highlight_style(Style::new().bg(SLATE.c800).add_modifier(Modifier::BOLD))
             .highlight_spacing(HighlightSpacing::Always);
 
-        let mut state = ListState::default().with_selected(Some(self.currently_selected as usize));
+        let mut state =
+            ListState::default().with_selected(Some(self.currently_selected_list_item as usize));
 
         StatefulWidget::render(list, area, buf, &mut state);
     }
+
+    fn render_historical_data(&self, area: Rect, buf: &mut Buffer) {
+        let table = Table::from_iter(self.history.iter()).block(Block::bordered());
+
+        let mut state = TableState::default();
+        StatefulWidget::render(table, area, buf, &mut state);
+    }
 }
 
-impl Widget for HomeTab {
+impl Widget for &HomeTab {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let horizontal = Layout::horizontal([Constraint::Min(0)]);
-        let [list] = horizontal.areas(area);
+        let vertical = Layout::vertical([Constraint::Min(0), Constraint::Percentage(25)]);
+        let [list, table] = vertical.areas(area);
         self.render_home_list(list, buf);
+        self.render_historical_data(table, buf);
     }
 }
